@@ -1,1 +1,1 @@
-# Aaraki
+# Aaraki - Revolutionize Self Education
