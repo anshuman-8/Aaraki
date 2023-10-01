@@ -1,4 +1,5 @@
 # Aaraki 
+Retriever based QA using Llama-2 (13b)
 
 - ⚠️ Under development ⚠️
 
