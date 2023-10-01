@@ -52,7 +52,6 @@ class AskAaraki():
             use_auth_token=hf_auth
         )
 
-
         self.model = transformers.AutoModelForCausalLM.from_pretrained(
             self.model_name,
             trust_remote_code=True,
@@ -64,10 +63,7 @@ class AskAaraki():
 
         )
         self.model.eval()
-        log.info(f"Loaded model: {self.model_name}")
-
-        # print(f"Model loaded on {self.device}")
-        log.info(f"Loaded model: {self.model_name}")
+        log.info(f"Loaded model: {self.model_name} on {self.device}")
 
     def _embed(self):
         embed_model_id = self.embed_model_name
@@ -79,6 +75,10 @@ class AskAaraki():
         log.info(f"Loaded embed model: {embed_model_id}")
 
     def _get_texts(self):
+        pdf_files = [os.path.join(self.pdf_directory, f) for f in os.listdir(self.pdf_directory) if os.path.isfile(os.path.join(self.pdf_directory, f)) and f.endswith('.pdf')]
+        log.debug(f"Found {len(pdf_files)} pdf files in {self.pdf_directory}")
+        if len(pdf_files) == 0:
+            raise ValueError(f"No pdf files found in {self.pdf_directory}")
         loader = PyPDFDirectoryLoader(self.pdf_directory)
         data = loader.load()
         log.debug(f"Loaded {len(data)} documents from {self.pdf_directory}")
@@ -88,11 +88,18 @@ class AskAaraki():
         return texts
 
     def _upsert_vectorstore(self):
+        log.debug(f"Initializing pinecone")
+        log.debug(f"pinecone key: {self.pinecone_key}")
+
         pinecone.init(
-        api_key = self.pinecone_key,
-        environment = self.pinecone_env,
-        )
-        log.debug(f"pinecone initialized: {pinecone.list_indexes()}")
+            api_key = self.pinecone_key,
+            environment = self.pinecone_env,
+            )
+        log.debug(f"pinecone initialized")
+
+        if self.index_name == None or self.index_name == "":
+            raise ValueError("Please provide a pinecone index name")
+
 
         if self.index_name not in pinecone.list_indexes():
             log.debug(f"Creating index: {self.index_name}")
@@ -124,6 +131,8 @@ class AskAaraki():
         log.info(f"Upsert Done!! {len(ids)} vectors into {self.index_name}")
 
     def llm_rag_pipeline(self, topic):
+        log.debug(f'Loading llm_rag_pipeline')
+        log.debug(f"Topic: {topic}")
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             self.model_name,
             use_auth_token=self.hf_key
@@ -142,26 +151,25 @@ class AskAaraki():
 
         llm = HuggingFacePipeline(pipeline=generate_text)
         log.debug(f"Loaded pipeline: {self.model_name}")
-        vectorstore = Pinecone(
+        self.vectorstore = Pinecone(
             self.index, self.embed_model.embed_query, "text"
         )
         self.vectorstore.similarity_search(topic, k=6)
-        log.debug(f"Loaded vectorstore: {vectorstore}")
+        log.debug(f"Loaded vectorstore: {self.vectorstore}")
 
         self.rag_pipeline = RetrievalQA.from_chain_type(
             llm=llm, chain_type='stuff',
-            retriever=vectorstore.as_retriever()
+            retriever=self.vectorstore.as_retriever()
         )
-        log.debug(f"Loaded askAaraki: {self.askAaraki}")
         log.info(f'Topic received: {topic}')
+        log.info(f"Retrival QA Pipeline Ready!")
 
     def ask(self, prompt):
-        log.info(f'Prompt received: {prompt}')
+        log.debug(f'Prompt received: {prompt}')
         if self.rag_pipeline is None:
             raise ValueError("Please run llm_rag_pipeline(topic) first")
         answer = self.rag_pipeline(prompt)
-        log.info(f'Answer: {answer}')
-
+        log.debug(f"Answer to {answer['query']} ready!")
         return answer
 
 
