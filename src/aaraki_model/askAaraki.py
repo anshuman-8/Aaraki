@@ -6,9 +6,13 @@ import logging as log
 import textwrap
 from torch import bfloat16
 from langchain.vectorstores import Pinecone
+from langchain.chains import ConversationalRetrievalChain
+
 from langchain.llms import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
+from langchain.memory import ConversationBufferMemory
+
 from langchain.document_loaders import PyPDFDirectoryLoader
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -51,6 +55,8 @@ class AskAaraki:
         self.chunk_overlap = chunk_overlap
         self.embed_dim = 384
         self.template = template
+
+        self.chat_history = []
 
         self.rag_pipeline = None
 
@@ -108,7 +114,7 @@ class AskAaraki:
         data = loader.load()
         log.debug(f"Loaded {len(data)} documents from {self.pdf_directory}")
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.text_split_chunk_size, chunk_overlap=self.chunk_overlap
+            chunk_size=self.text_split_chunk_size, chunk_overlap=self.chunk_overlap, add_start_index = True
         )
         texts = text_splitter.split_documents(data)
         log.debug(f"Split {len(texts)} documents into texts chunks")
@@ -168,12 +174,12 @@ class AskAaraki:
         generate_text = transformers.pipeline(
             model=self.model,
             tokenizer=tokenizer,
-            return_full_text=True,  # langchain expects the full text
+            return_full_text=True,  
             task="text-generation",
-            temperature=0.0,  # 'randomness' of outputs, 0.0 is the min and 1.0 the max
-            max_new_tokens=512,  # mex number of tokens to generate in the output
-            repetition_penalty=1.1,  # without this output begins repeating
-            framework="pt",
+            temperature=0.0,  
+            max_new_tokens=512, 
+            repetition_penalty=1.1, 
+            framework="pt"
         )
 
         llm = HuggingFacePipeline(pipeline=generate_text)
@@ -185,17 +191,21 @@ class AskAaraki:
         PROMPT = None
         if self.template is not None:
             PROMPT = PromptTemplate(
-                template=self.template, input_variables=["context", "question"]
+                template=self.template, input_variables=["chat_history", "context", "question"]
             )
             log.info(f"Loaded template: {self.template}")
-
-        self.rag_pipeline = RetrievalQA.from_chain_type(
+        self.chat_history = ConversationBufferMemory(output_key='answer', context_key='context',
+        memory_key='chat_history', return_messages=True)
+        log.debug(f"Loaded chat_history: {self.chat_history}")
+        self.rag_pipeline = ConversationalRetrievalChain.from_llm(
             llm=llm,
             chain_type="stuff",
             retriever=self.vectorstore.as_retriever(),
-            chain_type_kwargs={"prompt": PROMPT},
+            condense_question_prompt=PROMPT,
             verbose=False,
             return_source_documents=True,
+            memory=self.chat_history,
+            get_chat_history=lambda h : h,
         )
         log.info(f"Topic received: {topic}")
         log.info(f"Retrival QA Pipeline Ready!")
@@ -205,12 +215,12 @@ class AskAaraki:
         if self.rag_pipeline is None:
             raise ValueError("Please run llm_rag_pipeline(topic) first")
         answer = self.rag_pipeline(prompt)
-        log.debug(f"Answer to {answer['query']} ready!")
+        log.debug(f"Answer to {answer['answer']} ready!")
         return answer
 
 
     def process_response(self, llm_response, width=700):
-        text = llm_response["result"]
+        text = llm_response["answer"]
         lines = text.split("\n")
         wrapped_lines = [textwrap.fill(line, width=width) for line in lines]
         ans = "\n".join(wrapped_lines)
