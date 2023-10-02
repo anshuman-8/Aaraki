@@ -2,7 +2,7 @@ import os
 import argparse
 import logging as log
 from dotenv import load_dotenv
-from aaraki_model.model import AskAaraki
+from aaraki_model.askAaraki import AskAaraki
 
 load_dotenv()
 
@@ -11,7 +11,7 @@ config = {
     "embed_model_name": "sentence-transformers/all-MiniLM-L6-v2",
     "pdf_directory": "./datasets/explain_me/",
     "text_split_chunk_size": 750,
-    "chunk_overlap": 20,
+    "chunk_overlap": 40,
     "pinecone_index": "anshuman-info",
     "huggingface_key": os.environ.get("HUGGINGFACE_ENV") or "HUGGINGFACE_ENV",
     "pinecone_key": os.environ.get("PINECONE_API_KEY") or "PINECONE_API_KEY",
@@ -19,15 +19,18 @@ config = {
     "device": "cuda",
     "max_opt_token": 512,
     "vectorstore_similarity_query": 5,
-    "log": False,
+    "log": True,
 }
 
 template = """
+        You help everyone by answering questions, and improve your answers from previous answer in History.
         Don't try to make up an answer, if you don't know just say that you don't know.
         Answer in the same language the question was asked.
         Answer in a way that is easy to understand.
         Do not say "Based on the information you provided, ..." or "I think the answer is...". Just answer the question directly in detail.
         Use only the following pieces of context to answer the question at the end.
+
+        History: {chat_history}
 
         Context: {context}
 
@@ -78,7 +81,8 @@ def main():
             log.info(f"Prompt received: {prompt}")
 
         answer = aaraki.ask(prompt=prompt)
-        print(f"Answer: {aaraki.process_response(answer)}")
+        # print(f"Answer: {aaraki.process_response(answer)}")
+        print(f"Answer: {answer}")
 
         print("\n")
         end = input("Do you want to end (y/n)? ")
