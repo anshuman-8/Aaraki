@@ -6,13 +6,10 @@ import logging as log
 import textwrap
 from torch import bfloat16
 from langchain.vectorstores import Pinecone
-from langchain.chains import ConversationalRetrievalChain
-
-from langchain.llms import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
+from langchain.llms import HuggingFacePipeline
 from langchain.memory import ConversationBufferMemory
-
+from langchain.chains import ConversationalRetrievalChain
 from langchain.document_loaders import PyPDFDirectoryLoader
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -32,9 +29,9 @@ class AskAaraki:
         text_split_chunk_size,
         chunk_overlap,
         pinecone_index,
+        log=True,
         template=None,
         max_opt_token=512,
-        vectorstore_similarity_query=2,
     ):
         self.model_name = model_name
         self.embed_model_name = embed_model_name
@@ -50,19 +47,36 @@ class AskAaraki:
         self.device = device
         self.vectorstore = None
         self.max_opt_token = 512
-        self.vectorstore_similarity_query = vectorstore_similarity_query
         self.text_split_chunk_size = text_split_chunk_size
         self.chunk_overlap = chunk_overlap
         self.embed_dim = 384
         self.template = template
+        self.log = log
 
         self.chat_history = []
 
         self.rag_pipeline = None
 
+        condense_template = """
+            Given the following conversation and a follow up input inside <input> tag, keep the follow up input as the standalone question. 
+            Do not answer the question just make the standalone question based on the chat history inside <history> tag. 
+            Directly give the standalone question no need of any context.
+            <history>
+            {chat_history}
+            </history>
+            ------------------
+            <input>
+            Follow Up Input: {question}
+            </input>
+            ------------------
+            Standalone question:
+        """
+        self.condense_prompt = PromptTemplate.from_template(template=condense_template)
+
         self.load_model()
         self._embed()
         self._upsert_vectorstore()
+        self.llm_rag_pipeline()
 
     def load_model(self):
         bnb_config = transformers.BitsAndBytesConfig(
@@ -78,7 +92,6 @@ class AskAaraki:
         )
 
         self.model = transformers.AutoModelForCausalLM.from_pretrained(
-            # self.model_name,
             pretrained_model_name_or_path=self.model_name,
             trust_remote_code=True,
             config=model_config,
@@ -86,7 +99,6 @@ class AskAaraki:
             device_map="auto",
             use_auth_token=hf_auth,
             resume_download=True,
-            
         )
         self.model.eval()
         log.info(f"Loaded model: {self.model_name} on {self.device}")
@@ -114,7 +126,10 @@ class AskAaraki:
         data = loader.load()
         log.debug(f"Loaded {len(data)} documents from {self.pdf_directory}")
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.text_split_chunk_size, chunk_overlap=self.chunk_overlap, add_start_index = True
+            chunk_size=self.text_split_chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            add_start_index=True,
+
         )
         texts = text_splitter.split_documents(data)
         log.debug(f"Split {len(texts)} documents into texts chunks")
@@ -163,9 +178,8 @@ class AskAaraki:
         self.index.upsert(vectors=zip(ids, embeds, metadata), show_progress=False)
         log.info(f"Upsert Done!! {len(ids)} vectors into {self.index_name}")
 
-    def llm_rag_pipeline(self, topic):
+    def llm_rag_pipeline(self):
         log.debug(f"Loading llm_rag_pipeline")
-        log.debug(f"Topic: {topic}")
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             self.model_name, use_auth_token=self.hf_key
         )
@@ -174,62 +188,68 @@ class AskAaraki:
         generate_text = transformers.pipeline(
             model=self.model,
             tokenizer=tokenizer,
-            return_full_text=True,  
+            return_full_text=True,
             task="text-generation",
-            temperature=0.0,  
-            max_new_tokens=512, 
-            repetition_penalty=1.1, 
-            framework="pt"
+            temperature=0.0,
+            max_new_tokens=512,
+            repetition_penalty=1.1,
+            framework="pt",
         )
 
         llm = HuggingFacePipeline(pipeline=generate_text)
         log.debug(f"Loaded pipeline: {self.model_name}")
         self.vectorstore = Pinecone(self.index, self.embed_model.embed_query, "text")
-        self.vectorstore.similarity_search(topic, k=6)
         log.debug(f"Loaded vectorstore: {self.vectorstore}")
 
         PROMPT = None
         if self.template is not None:
             PROMPT = PromptTemplate(
-                template=self.template, input_variables=["chat_history", "context", "question"]
+                template=self.template,
+                input_variables=["chat_history", "context", "question"],
             )
             log.info(f"Loaded template: {self.template}")
-        self.chat_history = ConversationBufferMemory(output_key='answer', context_key='context',
-        memory_key='chat_history', return_messages=True)
+        self.chat_history = ConversationBufferMemory(
+            output_key="answer",
+            memory_key="chat_history",
+            return_messages=True,
+        )
         log.debug(f"Loaded chat_history: {self.chat_history}")
         self.rag_pipeline = ConversationalRetrievalChain.from_llm(
             llm=llm,
             chain_type="stuff",
             retriever=self.vectorstore.as_retriever(),
-            condense_question_prompt=PROMPT,
-            verbose=False,
-            return_source_documents=True,
+            condense_question_prompt=self.condense_prompt,
+            combine_docs_chain_kwargs={"prompt": PROMPT},
+            verbose=self.log,
+            return_source_documents=False,
             memory=self.chat_history,
             get_chat_history=lambda h : h,
         )
-        log.info(f"Topic received: {topic}")
         log.info(f"Retrival QA Pipeline Ready!")
 
     def ask(self, prompt):
         log.debug(f"Prompt received: {prompt}")
         if self.rag_pipeline is None:
-            raise ValueError("Please run llm_rag_pipeline(topic) first")
-        answer = self.rag_pipeline(prompt)
-        log.debug(f"Answer to {answer['answer']} ready!")
+            raise ValueError("Please run llm_rag_pipeline() first")
+        
+        answer = self.rag_pipeline.run({'question':prompt})
+        log.debug(f"Answer to {answer} ready!")
         return answer
 
+    # def process_response(self, llm_response, width=700):
+    #     text = llm_response["answer"]
+    #     lines = text.split("\n")
+    #     wrapped_lines = [textwrap.fill(line, width=width) for line in lines]
+    #     ans = "\n".join(wrapped_lines)
 
-    def process_response(self, llm_response, width=700):
-        text = llm_response["answer"]
-        lines = text.split("\n")
-        wrapped_lines = [textwrap.fill(line, width=width) for line in lines]
-        ans = "\n".join(wrapped_lines)
+    #     sources_used = " \n".join(
+    #         [
+    #             source.metadata["source"].split("/")[-1][:-4]
+    #             + " - page: "
+    #             + str(source.metadata["page"])
+    #             for source in llm_response["source_documents"]
+    #         ]
+    #     )
 
-        sources_used = " \n".join([
-            source.metadata["source"].split("/")[-1][:-4]
-            + " - page: "
-            + str(source.metadata["page"])
-            for source in llm_response["source_documents"]])
-
-        ans = ans + "\n\nSources: \n" + sources_used
-        return ans
+    #     ans = ans + "\n\nSources: \n" + sources_used
+    #     return ans

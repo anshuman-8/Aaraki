@@ -9,33 +9,36 @@ load_dotenv()
 config = {
     "model_name": "meta-llama/Llama-2-13b-chat-hf",
     "embed_model_name": "sentence-transformers/all-MiniLM-L6-v2",
-    "pdf_directory": "./datasets/explain_me/",
-    "text_split_chunk_size": 750,
+    "pdf_directory": "./datasets/pow_books/",
+    "text_split_chunk_size": 800,
     "chunk_overlap": 40,
-    "pinecone_index": "anshuman-info",
+    "pinecone_index": "power-index",
     "huggingface_key": os.environ.get("HUGGINGFACE_ENV") or "HUGGINGFACE_ENV",
     "pinecone_key": os.environ.get("PINECONE_API_KEY") or "PINECONE_API_KEY",
     "pinecone_env": os.environ.get("PINECONE_ENV") or "PINECONE_ENV",
     "device": "cuda",
     "max_opt_token": 512,
-    "vectorstore_similarity_query": 5,
-    "log": True,
+    "log": False,
 }
 
 template = """
-        You help everyone by answering questions, and improve your answers from previous answer in History.
-        Don't try to make up an answer, if you don't know just say that you don't know.
-        Answer in the same language the question was asked.
-        Answer in a way that is easy to understand.
-        Do not say "Based on the information you provided, ..." or "I think the answer is...". Just answer the question directly in detail.
-        Use only the following pieces of context to answer the question at the end.
+You are AI, and your job is to answer questions to Humans in most helpful and polite way possible.
+You are provided with your previous answers inside <history> tag, and you can use them to answer the question. 
+Also use the following pieces of information inside <context> tag to answer the question at the end.
+Don't try to make up an answer, if you don't know or it dosen't exists in context just say that you don't know.
+Answer in a way that is easy to understand. Answer in the the way it is asked for like, in steps.., in short, in points.... 
+Do not say "Based on the information you provided, ..." or "I think the answer is...". Just answer the question directly in detail.
 
-        History: {chat_history}
-
-        Context: {context}
-
-        Question: {question}
-        Answer:"""
+<history>
+ {chat_history}
+</history>
+------------------
+<context>
+ {context}
+</context>
+------------------
+Question: {question}
+Helpful Answer:"""
 
 if config["log"]:
     log.basicConfig(level=log.INFO, format=" %(levelname)s %(message)s")
@@ -44,15 +47,15 @@ log.info(f"Loaded config: {config}\n")
 
 def main():
     parser = argparse.ArgumentParser(description="Process prompts.")
-    parser.add_argument("--topic", type=str, help="Input topic")
+    parser.add_argument("--prompt", type=str, help="Input Prompt")
     args = parser.parse_args()
 
-    if args.topic:
-        log.info(f"Topic received: {args.topic}")
+    if args.prompt:
+        log.info(f"Prompt received: {args.prompt}")
     else:
-        log.error("No Topic provided provided.")
-        exit()
+        log.info("No prompt provided provided.")
 
+    print(f'Preparing the model...')
     aaraki = AskAaraki(
         model_name=config["model_name"],
         embed_model_name=config["embed_model_name"],
@@ -66,12 +69,11 @@ def main():
         chunk_overlap=config["chunk_overlap"],
         pinecone_index=config["pinecone_index"],
         max_opt_token=config["max_opt_token"],
+        log=config["log"],
         template=template,
-        vectorstore_similarity_query=config["vectorstore_similarity_query"],
     )
-
-    aaraki.llm_rag_pipeline(topic=args.topic)
-
+    print(f'Model ready!\n')
+    
     while True:
         prompt = input("\nEnter your prompt: ")
 
@@ -80,6 +82,7 @@ def main():
         else:
             log.info(f"Prompt received: {prompt}")
 
+        print(f"Generating answer...")
         answer = aaraki.ask(prompt=prompt)
         # print(f"Answer: {aaraki.process_response(answer)}")
         print(f"Answer: {answer}")
