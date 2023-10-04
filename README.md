@@ -55,7 +55,7 @@ python3 src/app.py
 
 > Note : Initially, it will take a considerable amount of time before prompting you. This is due to the installation of the Llama-2 13b model, which is 24GB in size. You can install other LLM models by adding the model's Hugging Face path/id to the config.
 
-4. To get desired results the prompt template can be improved by updating `template` in `src/app.py`
+4. To get the desired results, the prompt template can be improved by updating `template` in `src/app.py`
 
 ## TODO 
 - Impliment a chat streaming
