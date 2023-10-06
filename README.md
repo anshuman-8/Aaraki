@@ -1,7 +1,11 @@
 # Aaraki 
-Retriever based QA using Llama-2 (13b)
+Retriever-based QA using Llama-2 (13b) 👾
 
-- ⚠️ Under development ⚠️
+## Features ✨
+- Context Retrieval Based on Semantics 
+- Preserves Conversation History Context
+- Extracts Text from Multiple PDFs
+- Simple Command Line Interface (CLI)
 
 ## Setup
 
@@ -12,7 +16,7 @@ source aaraki-env/bin/activate
 ```
 
 2. Set Environment Variables
-Create a .env file based on the provided dummy.env. Set the values for Huggingface and Pinecone.
+Create a .env file based on the provided Semantic based context retrivaldummy.env. Set the values for Huggingface and Pinecone.
 ```env
 HUGGINGFACE_ENV=your_huggingface_key_here
 PINECONE_API_KEY=your_pinecone_key_here
@@ -24,7 +28,7 @@ PINECONE_ENV=your_pinecone_env_here
 pip install -r requirements.txt
 ```
 
-## Run
+## Run 🚀
 - Keep all your PDF files (which is to be searched) in datasets folder.
 > Note : Keep all the PDF files in ./datasets/ folder itself unnested.
 
@@ -57,8 +61,10 @@ python3 src/app.py
 
 4. To get the desired results, the prompt template can be improved by updating `template` in `src/app.py`
 
-## TODO 
+## TODO 🛠️
 - Impliment a chat streaming
 - Improve condense question prompt
 - Improve character text splitter for better text embeddings
 - Impliment a GUI/CLI application for chat.
+
+Contributions are greatly appreciated! 🙌

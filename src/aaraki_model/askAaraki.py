@@ -57,15 +57,15 @@ class AskAaraki:
         self.rag_pipeline = None
 
         condense_template = """
-            Given the following conversation and a follow up input in FOLLOW UP INPUT, keep the follow up input as the standalone question. 
-            Do not answer the question just make the standalone question based on the chat history in HISTORY . 
-            Directly give the standalone question no need of any context.
+            Given the following conversation in History and a Follow up Input, keep the follow up input as the standalone question. 
+            Do not answer the question just make the standalone question based on the chat history in HISTORY. 
+            Directly give the standalone question no need of any context or explanation.
             
-            HISTORY:
+            History:
             {chat_history}
 
             ------------------
-            FOLLOW UP INPUT:
+            Follow up Input:
              {question}
 
             ------------------
